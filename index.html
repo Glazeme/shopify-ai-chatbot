@@ -5,162 +5,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shopify AI Chatbot</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .demo-text {
-            color: white;
-            font-size: 24px;
-            text-align: center;
-        }
-
-        .chat-button {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            background: #667eea;
-            border: none;
-            cursor: pointer;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            font-size: 28px;
-            color: white;
-            transition: all 0.3s ease;
-        }
-
-        .chat-button:hover {
-            transform: scale(1.1);
-            background: #764ba2;
-        }
-
-        .chat-window {
-            position: fixed;
-            bottom: 100px;
-            right: 30px;
-            width: 380px;
-            height: 500px;
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-            display: none;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .chat-window.active {
-            display: flex;
-        }
-
-        .chat-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 16px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .chat-header h3 {
-            font-size: 16px;
-        }
-
-        .close-btn {
-            background: none;
-            border: none;
-            color: white;
-            font-size: 24px;
-            cursor: pointer;
-        }
-
-        .chat-messages {
-            flex: 1;
-            padding: 16px;
-            overflow-y: auto;
-            background: #f8f9fa;
-        }
-
-        .message {
-            margin-bottom: 12px;
-            padding: 12px;
-            border-radius: 12px;
-            max-width: 80%;
-        }
-
-        .message.bot {
-            background: white;
-            border: 1px solid #e0e0e0;
-            align-self: flex-start;
-        }
-
-        .message.user {
-            background: #667eea;
-            color: white;
-            margin-left: auto;
-        }
-
-        .quick-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            padding: 12px;
-            background: white;
-            border-top: 1px solid #e0e0e0;
-        }
-
-        .quick-btn {
-            padding: 8px 14px;
-            border: 1px solid #667eea;
-            background: white;
-            color: #667eea;
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: all 0.2s;
-        }
-
-        .quick-btn:hover {
-            background: #667eea;
-            color: white;
-        }
-
-        .chat-input {
-            display: flex;
-            padding: 12px;
-            background: white;
-            border-top: 1px solid #e0e0e0;
-        }
-
-        .chat-input input {
-            flex: 1;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 20px;
-            outline: none;
-        }
-
-        .chat-input button {
-            margin-left: 8px;
-            padding: 10px 16px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 20px;
-            cursor: pointer;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 100vh; display: flex; justify-content: center; align-items: center; }
+        .demo-text { color: white; font-size: 24px; text-align: center; }
+        .chat-button { position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; border-radius: 50%; background: #667eea; border: none; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-size: 28px; color: white; transition: all 0.3s ease; z-index: 1000;}
+        .chat-button:hover { transform: scale(1.1); background: #764ba2; }
+        .chat-window { position: fixed; bottom: 100px; right: 30px; width: 380px; height: 500px; background: white; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.2); display: none; flex-direction: column; overflow: hidden; z-index: 1000;}
+        .chat-window.active { display: flex; }
+        .chat-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px; display: flex; justify-content: space-between; align-items: center; }
+        .chat-header h3 { font-size: 16px; }
+        .close-btn { background: none; border: none; color: white; font-size: 24px; cursor: pointer; }
+        .chat-messages { flex: 1; padding: 16px; overflow-y: auto; background: #f8f9fa; }
+        .message { margin-bottom: 12px; padding: 12px; border-radius: 12px; max-width: 85%; line-height: 1.4; font-size: 14px; }
+        .message.bot { background: white; border: 1px solid #e0e0e0; align-self: flex-start; }
+        .message.user { background: #667eea; color: white; margin-left: auto; }
+        .quick-buttons { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; background: white; border-top: 1px solid #e0e0e0; }
+        .quick-btn { padding: 8px 14px; border: 1px solid #667eea; background: white; color: #667eea; border-radius: 20px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+        .quick-btn:hover { background: #667eea; color: white; }
+        .chat-input { display: flex; padding: 12px; background: white; border-top: 1px solid #e0e0e0; }
+        .chat-input input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 20px; outline: none; font-size: 14px; }
+        .chat-input button { margin-left: 8px; padding: 10px 16px; background: #667eea; color: white; border: none; border-radius: 20px; cursor: pointer; }
+        .product-link { color: #667eea; text-decoration: none; font-weight: bold; display: inline-block; margin-top: 5px; }
+        .product-link:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -185,9 +51,9 @@
         </div>
 
         <div class="quick-buttons">
-            <button class="quick-btn" onclick="sendQuickMessage('Show me trending nail polishes')">🔥 Trending</button>
+            <button class="quick-btn" onclick="sendQuickMessage('Show me red nail polish')"> Red Polish</button>
             <button class="quick-btn" onclick="sendQuickMessage('Show me new arrivals')">✨ New Arrivals</button>
-            <button class="quick-btn" onclick="sendQuickMessage('Recommend nude matte polish')">💅 Skin Help</button>
+            <button class="quick-btn" onclick="sendQuickMessage('Recommend for fair skin')">💅 Fair Skin</button>
         </div>
 
         <div class="chat-input">
@@ -202,7 +68,7 @@
         const SHOPIFY_STOREFRONT_TOKEN = 'e6673d9d9a5aa5981f1cd6a485aa5fd9';
         
         // Groq API Configuration
-        const GROQ_API_KEY = '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'; // Apni key yahan paste karo
+        const GROQ_API_KEY = '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; // Apni key yahan paste karo
 
         let productsData = [];
 
@@ -215,6 +81,8 @@
                         edges {
                             node {
                                 title
+                                handle
+                                onlineStoreUrl
                                 tags
                                 description
                                 variants(first: 1) {
@@ -240,18 +108,16 @@
 
                 const data = await response.json();
                 productsData = data.data.products.edges.map(edge => edge.node);
-                console.log('Products loaded:', productsData.length);
+                console.log('✅ Products loaded from Shopify:', productsData.length);
             } catch (error) {
-                console.error('Error fetching products:', error);
+                console.error('❌ Error fetching products:', error);
             }
         }
 
-        // Load products when page opens
         fetchProducts();
 
         function toggleChat() {
-            const chatWindow = document.getElementById('chatWindow');
-            chatWindow.classList.toggle('active');
+            document.getElementById('chatWindow').classList.toggle('active');
         }
 
         function sendQuickMessage(message) {
@@ -262,7 +128,6 @@
         function sendMessage() {
             const input = document.getElementById('userInput');
             const message = input.value.trim();
-            
             if (message) {
                 addMessage(message, 'user');
                 input.value = '';
@@ -274,10 +139,13 @@
             addMessage('Thinking... ⏳', 'bot', true);
 
             try {
-                // Create product context for AI
-                const productContext = productsData.map(p => 
-                    `${p.title} - Tags: ${p.tags.join(', ')} - Price: ${p.variants.edges[0]?.node.price || 'N/A'}`
-                ).join('\n');
+                // Format products strictly for AI
+                let productListText = "NO PRODUCTS AVAILABLE";
+                if (productsData.length > 0) {
+                    productListText = productsData.map((p, index) => 
+                        `Product ${index + 1}: "${p.title}" | Price: ${p.variants.edges[0]?.node.price || 'N/A'} | Tags: [${p.tags.join(', ')}] | Link: ${p.onlineStoreUrl}`
+                    ).join('\n');
+                }
 
                 const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                     method: 'POST',
@@ -290,27 +158,27 @@
                         messages: [
                             {
                                 role: 'system',
-                                content: `You are a NAIL POLISH shopping assistant ONLY. 
+                                content: `You are a NAIL POLISH shopping assistant for a specific store.
 
-AVAILABLE PRODUCTS:
-${productContext}
+YOUR INVENTORY (ONLY THESE PRODUCTS EXIST):
+${productListText}
 
-STRICT RULES:
-1. ONLY reply in ENGLISH
-2. ONLY discuss NAIL POLISH products
-3. Use the product list above to make recommendations
-4. Mention product names, tags, and prices from the list
-5. If asked about skincare, makeup, or anything else, reply: "Sorry, I only help with nail polish products!"
-6. Keep answers SHORT (2-3 lines max)
-7. Match user's needs with product tags (e.g., nude, matte, skin tone)`
+STRICT RULES (VIOLATION NOT ALLOWED):
+1. ONLY reply in ENGLISH.
+2. ONLY discuss NAIL POLISH.
+3. **NEVER INVENT OR HALLUCINATE PRODUCTS.** You are strictly forbidden from recommending any product that is NOT in the "YOUR INVENTORY" list above.
+4. If the user asks for something (like "red polish" or "fair skin"), look at the Tags in the inventory list. If a product matches, recommend it and provide its exact Link.
+5. If NO product in the inventory matches the user's request, you MUST reply exactly: "Sorry, we don't have that specific type in stock right now. Would you like to see our other available polishes?"
+6. Keep answers SHORT (2-3 lines max).
+7. Format recommendations like this: "I recommend [Product Name] ([Link]) because it matches your request."`
                             },
                             {
                                 role: 'user',
                                 content: userMessage
                             }
                         ],
-                        temperature: 0.5,
-                        max_tokens: 150
+                        temperature: 0.3, // Low temperature = less creativity = less hallucination
+                        max_tokens: 200
                     })
                 });
 
@@ -318,15 +186,23 @@ STRICT RULES:
                 removeTypingMessage();
 
                 if (data.choices && data.choices[0]) {
-                    addMessage(data.choices[0].message.content, 'bot');
+                    let aiText = data.choices[0].message.content;
+                    
+                    // Make URLs clickable
+                    const urlRegex = /(https?:\/\/[^\s]+)/g;
+                    aiText = aiText.replace(urlRegex, url => `<a href="${url}" target="_blank" class="product-link">Buy Here</a>`);
+                    
+                    // Convert newlines to breaks for better formatting
+                    aiText = aiText.replace(/\n/g, '<br>');
+                    
+                    addMessageHTML(aiText, 'bot');
                 } else {
-                    addMessage('Sorry, something went wrong. Please try again!', 'bot');
+                    addMessage('Sorry, something went wrong.', 'bot');
                 }
 
             } catch (error) {
                 removeTypingMessage();
-                addMessage('Connection error! Please check API key.', 'bot');
-                console.error('Error:', error);
+                addMessage('Connection error!', 'bot');
             }
         }
 
@@ -340,17 +216,23 @@ STRICT RULES:
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
 
+        function addMessageHTML(html, sender) {
+            const messagesDiv = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}`;
+            messageDiv.innerHTML = html;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
         function removeTypingMessage() {
             const typingMsg = document.getElementById('typingMessage');
             if (typingMsg) typingMsg.remove();
         }
 
         function handleKeyPress(event) {
-            if (event.key === 'Enter') {
-                sendMessage();
-            }
+            if (event.key === 'Enter') sendMessage();
         }
     </script>
-
 </body>
 </html>
