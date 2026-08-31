@@ -26,7 +26,6 @@
             text-align: center;
         }
 
-        /* Chat Button */
         .chat-button {
             position: fixed;
             bottom: 30px;
@@ -48,7 +47,6 @@
             background: #764ba2;
         }
 
-        /* Chat Window */
         .chat-window {
             position: fixed;
             bottom: 100px;
@@ -67,7 +65,6 @@
             display: flex;
         }
 
-        /* Header */
         .chat-header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -89,7 +86,6 @@
             cursor: pointer;
         }
 
-        /* Messages Area */
         .chat-messages {
             flex: 1;
             padding: 16px;
@@ -116,7 +112,6 @@
             margin-left: auto;
         }
 
-        /* Quick Buttons */
         .quick-buttons {
             display: flex;
             flex-wrap: wrap;
@@ -142,7 +137,6 @@
             color: white;
         }
 
-        /* Input Area */
         .chat-input {
             display: flex;
             padding: 12px;
@@ -176,26 +170,24 @@
         <p>Bottom right corner mein chat button dekho!</p>
     </div>
 
-    <!-- Chat Button -->
     <button class="chat-button" onclick="toggleChat()">💬</button>
 
-    <!-- Chat Window -->
     <div class="chat-window" id="chatWindow">
         <div class="chat-header">
-            <h3>🤖 Beauty Assistant</h3>
+            <h3>🤖 Nail Polish Assistant</h3>
             <button class="close-btn" onclick="toggleChat()">×</button>
         </div>
 
         <div class="chat-messages" id="chatMessages">
             <div class="message bot">
-                Hi! How may I help you in Finding best nail polish colors 😊
+                Hi! I'm your nail polish assistant. Ask me about colors, finishes, or recommendations! 
             </div>
         </div>
 
         <div class="quick-buttons">
-            <button class="quick-btn" onclick="sendQuickMessage('Trending Products dikhao')">🔥 Trending</button>
-            <button class="quick-btn" onclick="sendQuickMessage('New Arrivals kya hain?')">✨ New Arrivals</button>
-            <button class="quick-btn" onclick="sendQuickMessage('Oily skin ke liye products')">🧴 Skin Help</button>
+            <button class="quick-btn" onclick="sendQuickMessage('Show me trending nail polishes')">🔥 Trending</button>
+            <button class="quick-btn" onclick="sendQuickMessage('Show me new arrivals')">✨ New Arrivals</button>
+            <button class="quick-btn" onclick="sendQuickMessage('Recommend nude matte polish')">💅 Skin Help</button>
         </div>
 
         <div class="chat-input">
@@ -204,9 +196,58 @@
         </div>
     </div>
 
-        <script>
-        // ⚠️ BOSS: Yahan apni Groq API Key paste karni hai (gsk_ se start hoti hai)
-        const GROQ_API_KEY = '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'; 
+    <script>
+        // Shopify Configuration
+        const SHOPIFY_STORE_URL = 'https://glazeme-3.myshopify.com';
+        const SHOPIFY_STOREFRONT_TOKEN = 'e6673d9d9a5aa5981f1cd6a485aa5fd9';
+        
+        // Groq API Configuration
+        const GROQ_API_KEY = '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'; // Apni key yahan paste karo
+
+        let productsData = [];
+
+        // Fetch products from Shopify on load
+        async function fetchProducts() {
+            try {
+                const query = `
+                {
+                    products(first: 50) {
+                        edges {
+                            node {
+                                title
+                                tags
+                                description
+                                variants(first: 1) {
+                                    edges {
+                                        node {
+                                            price
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }`;
+
+                const response = await fetch(`${SHOPIFY_STORE_URL}/api/2024-01/graphql.json`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Shopify-Storefront-Access-Token': SHOPIFY_STOREFRONT_TOKEN
+                    },
+                    body: JSON.stringify({ query })
+                });
+
+                const data = await response.json();
+                productsData = data.data.products.edges.map(edge => edge.node);
+                console.log('Products loaded:', productsData.length);
+            } catch (error) {
+                console.error('Error fetching products:', error);
+            }
+        }
+
+        // Load products when page opens
+        fetchProducts();
 
         function toggleChat() {
             const chatWindow = document.getElementById('chatWindow');
@@ -230,10 +271,14 @@
         }
 
         async function getAIResponse(userMessage) {
-            // Pehle "Typing..." dikhao
-            addMessage('Wait Let me Check... ⏳', 'bot', true);
+            addMessage('Thinking... ⏳', 'bot', true);
 
             try {
+                // Create product context for AI
+                const productContext = productsData.map(p => 
+                    `${p.title} - Tags: ${p.tags.join(', ')} - Price: ${p.variants.edges[0]?.node.price || 'N/A'}`
+                ).join('\n');
+
                 const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                     method: 'POST',
                     headers: {
@@ -241,11 +286,23 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        model: 'groq/compound-mini', // Fast aur free model
+                        model: 'groq/compound-mini',
                         messages: [
                             {
                                 role: 'system',
-                                content: 'You are a NAIL POLISH shopping assistant ONLY. STRICT RULES: 1. ONLY reply in ENGLISH - never use Urdu, Hindi, or any other language. 2. ONLY discuss NAIL POLISH products (colors, finishes, brands, application tips). 3. If user asks about skincare, makeup, hair, or ANYTHING other than nail polish, reply EXACTLY: "Sorry, I only help with nail polish products! Please ask me about nail polish colors, finishes, or recommendations." 4. Keep answers VERY SHORT (2-3 lines max). 5. If asked about inappropriate topics, reply: "I only help with nail polish products!"'
+                                content: `You are a NAIL POLISH shopping assistant ONLY. 
+
+AVAILABLE PRODUCTS:
+${productContext}
+
+STRICT RULES:
+1. ONLY reply in ENGLISH
+2. ONLY discuss NAIL POLISH products
+3. Use the product list above to make recommendations
+4. Mention product names, tags, and prices from the list
+5. If asked about skincare, makeup, or anything else, reply: "Sorry, I only help with nail polish products!"
+6. Keep answers SHORT (2-3 lines max)
+7. Match user's needs with product tags (e.g., nude, matte, skin tone)`
                             },
                             {
                                 role: 'user',
@@ -258,21 +315,18 @@
                 });
 
                 const data = await response.json();
-                
-                // "Typing..." wala message hatao
                 removeTypingMessage();
 
                 if (data.choices && data.choices[0]) {
                     addMessage(data.choices[0].message.content, 'bot');
                 } else {
-                    addMessage('Maaf kijiye, kuch ghalti ho gayi. Dobara try karein!', 'bot');
+                    addMessage('Sorry, something went wrong. Please try again!', 'bot');
                 }
 
             } catch (error) {
                 removeTypingMessage();
-                addMessage('Connection error! API Key check karein.', 'bot');
+                addMessage('Connection error! Please check API key.', 'bot');
                 console.error('Error:', error);
-                console.log('Key used:', GROQ_API_KEY); // Debugging ke liye
             }
         }
 
@@ -297,5 +351,6 @@
             }
         }
     </script>
+
 </body>
 </html>
