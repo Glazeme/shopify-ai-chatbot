@@ -46,14 +46,14 @@
 
         <div class="chat-messages" id="chatMessages">
             <div class="message bot">
-                Hi! I'm your nail polish assistant. Ask me about colors, finishes, or recommendations! 
+                Hi! I am your nail polish assistant. Ask me about colors, finishes, or recommendations! 
             </div>
         </div>
 
         <div class="quick-buttons">
-            <button class="quick-btn" onclick="sendQuickMessage('Show me red nail polish')"> Red Polish</button>
-            <button class="quick-btn" onclick="sendQuickMessage('Show me new arrivals')">✨ New Arrivals</button>
-            <button class="quick-btn" onclick="sendQuickMessage('Recommend for fair skin')">💅 Fair Skin</button>
+            <button class="quick-btn" onclick="sendQuickMessage('Show me red nail polish')">Red Polish</button>
+            <button class="quick-btn" onclick="sendQuickMessage('Show me new arrivals')">New Arrivals</button>
+            <button class="quick-btn" onclick="sendQuickMessage('Recommend for fair skin')">Fair Skin</button>
         </div>
 
         <div class="chat-input">
@@ -63,20 +63,15 @@
     </div>
 
     <script>
-        // Shopify Configuration
         const SHOPIFY_STORE_URL = 'https://glazeme-3.myshopify.com';
         const SHOPIFY_STOREFRONT_TOKEN = 'e6673d9d9a5aa5981f1cd6a485aa5fd9';
-        
-        // Groq API Configuration
-        const GROQ_API_KEY = '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; // Apni key yahan paste karo
+        const GROQ_API_KEY = 'gsk_55whRzjmUMMRk2pSt0SNGdyb3FYvH4Fa5DVB...'; // Apni key yahan
 
         let productsData = [];
 
-        // Fetch products from Shopify on load
         async function fetchProducts() {
             try {
-                const query = `
-                {
+                const query = `{
                     products(first: 50) {
                         edges {
                             node {
@@ -97,27 +92,28 @@
                     }
                 }`;
 
-                const response = await fetch(`${SHOPIFY_STORE_URL}/api/2024-01/graphql.json`, {
+                const response = await fetch(SHOPIFY_STORE_URL + '/api/2024-01/graphql.json', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-Shopify-Storefront-Access-Token': SHOPIFY_STOREFRONT_TOKEN
                     },
-                    body: JSON.stringify({ query })
+                    body: JSON.stringify({ query: query })
                 });
 
                 const data = await response.json();
                 productsData = data.data.products.edges.map(edge => edge.node);
-                console.log('✅ Products loaded from Shopify:', productsData.length);
+                console.log('Products loaded:', productsData.length);
             } catch (error) {
-                console.error('❌ Error fetching products:', error);
+                console.error('Error fetching products:', error);
             }
         }
 
         fetchProducts();
 
         function toggleChat() {
-            document.getElementById('chatWindow').classList.toggle('active');
+            const chatWindow = document.getElementById('chatWindow');
+            chatWindow.classList.toggle('active');
         }
 
         function sendQuickMessage(message) {
@@ -136,48 +132,31 @@
         }
 
         async function getAIResponse(userMessage) {
-            addMessage('Thinking... ⏳', 'bot', true);
+            addMessage('Thinking...', 'bot', true);
 
             try {
-                // Format products strictly for AI
                 let productListText = "NO PRODUCTS AVAILABLE";
                 if (productsData.length > 0) {
                     productListText = productsData.map((p, index) => 
-                        `Product ${index + 1}: "${p.title}" | Price: ${p.variants.edges[0]?.node.price || 'N/A'} | Tags: [${p.tags.join(', ')}] | Link: ${p.onlineStoreUrl}`
+                        'Product ' + (index + 1) + ': "' + p.title + '" | Price: ' + (p.variants.edges[0] ? p.variants.edges[0].node.price : 'N/A') + ' | Tags: [' + p.tags.join(', ') + '] | Link: ' + p.onlineStoreUrl
                     ).join('\n');
                 }
+
+                const systemPrompt = 'You are a NAIL POLISH shopping assistant.\n\nYOUR INVENTORY (ONLY THESE PRODUCTS EXIST):\n' + productListText + '\n\nSTRICT RULES:\n1. ONLY reply in ENGLISH.\n2. ONLY discuss NAIL POLISH.\n3. NEVER INVENT PRODUCTS. Only recommend from the list above.\n4. If user asks for something, check Tags in inventory. If match found, recommend it with Link.\n5. If NO match, reply: "Sorry, we do not have that in stock."\n6. Keep answers SHORT (2-3 lines).\n7. Format: "I recommend [Product Name] ([Link])"';
 
                 const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${GROQ_API_KEY}`,
+                        'Authorization': 'Bearer ' + GROQ_API_KEY,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
                         model: 'groq/compound-mini',
                         messages: [
-                            {
-                                role: 'system',
-                                content: `You are a NAIL POLISH shopping assistant for a specific store.
-
-YOUR INVENTORY (ONLY THESE PRODUCTS EXIST):
-${productListText}
-
-STRICT RULES (VIOLATION NOT ALLOWED):
-1. ONLY reply in ENGLISH.
-2. ONLY discuss NAIL POLISH.
-3. **NEVER INVENT OR HALLUCINATE PRODUCTS.** You are strictly forbidden from recommending any product that is NOT in the "YOUR INVENTORY" list above.
-4. If the user asks for something (like "red polish" or "fair skin"), look at the Tags in the inventory list. If a product matches, recommend it and provide its exact Link.
-5. If NO product in the inventory matches the user's request, you MUST reply exactly: "Sorry, we don't have that specific type in stock right now. Would you like to see our other available polishes?"
-6. Keep answers SHORT (2-3 lines max).
-7. Format recommendations like this: "I recommend [Product Name] ([Link]) because it matches your request."`
-                            },
-                            {
-                                role: 'user',
-                                content: userMessage
-                            }
+                            { role: 'system', content: systemPrompt },
+                            { role: 'user', content: userMessage }
                         ],
-                        temperature: 0.3, // Low temperature = less creativity = less hallucination
+                        temperature: 0.3,
                         max_tokens: 200
                     })
                 });
@@ -187,14 +166,11 @@ STRICT RULES (VIOLATION NOT ALLOWED):
 
                 if (data.choices && data.choices[0]) {
                     let aiText = data.choices[0].message.content;
-                    
-                    // Make URLs clickable
                     const urlRegex = /(https?:\/\/[^\s]+)/g;
-                    aiText = aiText.replace(urlRegex, url => `<a href="${url}" target="_blank" class="product-link">Buy Here</a>`);
-                    
-                    // Convert newlines to breaks for better formatting
+                    aiText = aiText.replace(urlRegex, function(url) {
+                        return '<a href="' + url + '" target="_blank" class="product-link">Buy Here</a>';
+                    });
                     aiText = aiText.replace(/\n/g, '<br>');
-                    
                     addMessageHTML(aiText, 'bot');
                 } else {
                     addMessage('Sorry, something went wrong.', 'bot');
@@ -203,13 +179,14 @@ STRICT RULES (VIOLATION NOT ALLOWED):
             } catch (error) {
                 removeTypingMessage();
                 addMessage('Connection error!', 'bot');
+                console.error('Error:', error);
             }
         }
 
-        function addMessage(text, sender, isTyping = false) {
+        function addMessage(text, sender, isTyping) {
             const messagesDiv = document.getElementById('chatMessages');
             const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${sender}`;
+            messageDiv.className = 'message ' + sender;
             if (isTyping) messageDiv.id = 'typingMessage';
             messageDiv.textContent = text;
             messagesDiv.appendChild(messageDiv);
@@ -219,7 +196,7 @@ STRICT RULES (VIOLATION NOT ALLOWED):
         function addMessageHTML(html, sender) {
             const messagesDiv = document.getElementById('chatMessages');
             const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${sender}`;
+            messageDiv.className = 'message ' + sender;
             messageDiv.innerHTML = html;
             messagesDiv.appendChild(messageDiv);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
@@ -231,8 +208,11 @@ STRICT RULES (VIOLATION NOT ALLOWED):
         }
 
         function handleKeyPress(event) {
-            if (event.key === 'Enter') sendMessage();
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
         }
     </script>
+
 </body>
 </html>
