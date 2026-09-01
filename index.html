@@ -75,8 +75,16 @@
                     body: JSON.stringify({ query: query })
                 });
                 
-                const data = await res.json();
-                const edges = data.data.products.edges;
+           const data = await res.json();
+console.log("Shopify Response:", data); // Debugging
+
+if (!data.data || !data.data.products) {
+    console.error("❌ Shopify API Error! Check response above.");
+    productsList = [];
+    return;
+}
+
+const edges = data.data.products.edges;
                 
                 productsList = edges.map(e => {
                     const node = e.node;
