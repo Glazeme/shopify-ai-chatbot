@@ -59,11 +59,10 @@
         const SHOPIFY_TOKEN = 'e6673d9d9a5aa5981f1cd6a485aa5fd9';
         const GROQ_KEY = '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';
 
-        // TODO: Judge.me Settings > Integrations > View API tokens > PUBLIC token yahan daalo
         const JUDGEME_PUBLIC_TOKEN = 'dw8vRbFC_Stqw2a1kDAz2GDx6zo';
         const JUDGEME_SHOP_DOMAIN = 'ht0wa5-70.myshopify.com';
 
-        // Conversation memory: last products shown, so "iske reviews?" jaisa follow-up samajh aaye
+        // Conversation memory: last products shown, so "which one has more reviews?" makes sense
         let lastShownProducts = [];
 
         // ============ CHAT UI ============
@@ -109,7 +108,6 @@
         }
 
         // ============ STEP 2: Intent classification (Groq) ============
-        // Returns: { intent: "greeting"|"product_search"|"sale"|"trending"|"review_question"|"other", tag: "..." }
         async function classifyIntent(userMsg) {
             const hasLastProduct = lastShownProducts.length > 0;
             const systemPrompt =
@@ -119,7 +117,7 @@
                 "Rules:\n" +
                 "- intent=sale if user asks about discounts/sale items. tag should be null.\n" +
                 "- intent=trending if user asks about popular/trending items. tag should be null.\n" +
-                "- intent=review_question if user asks about reviews, ratings, feedback, opinions about a product" + (hasLastProduct ? " (a product was already shown, so this likely refers to it)" : "") + ". tag should be null.\n" +
+                "- intent=review_question if user asks about reviews, ratings, feedback, or which product has more/better reviews" + (hasLastProduct ? " (products were already shown, this refers to them)" : "") + ". tag should be null.\n" +
                 "- intent=product_search if user is asking to find/recommend a nail polish by color, finish, or skin tone. tag = that color/finish/skin-tone keyword in lowercase.\n" +
                 "- intent=other for anything else (small talk, unrelated questions). tag should be null.";
 
@@ -150,7 +148,7 @@
         // ============ Shopify: search products by tag ============
         async function searchProductsByTag(tag) {
             const searchQuery = "tag:'" + tag + "'";
-            const query = "query($q: String!) { products(first: 10, query: $q) { edges { node { id title tags onlineStoreUrl variants(first: 1) { edges { node { price { amount currencyCode } } } } } } } }";
+            const query = "query($q: String!) { products(first: 10, query: $q) { edges { node { id handle title tags onlineStoreUrl variants(first: 1) { edges { node { price { amount currencyCode } } } } } } } }";
 
             const res = await fetch(SHOPIFY_URL + '/api/2025-10/graphql.json', {
                 method: 'POST',
@@ -167,40 +165,35 @@
             let reply = '';
             products.forEach(function (p) {
                 const price = p.variants.edges[0] ? p.variants.edges[0].node.price.amount : 'N/A';
-                reply += '<b>' + p.title + '</b> — Rs. ' + price + ' — <a href="' + p.onlineStoreUrl + '" target="_blank" class="product-link">Buy Here</a><br>';
+                reply += '<b>' + p.title + '</b> — $' + price + ' — <a href="' + p.onlineStoreUrl + '" target="_blank" class="product-link">Buy Here</a><br>';
             });
             return reply;
         }
 
-        // ============ Judge.me: get review rating + count for a product ============
-        // Extracts numeric Shopify product ID from the GraphQL "gid://shopify/Product/12345" format
-        function extractNumericId(gid) {
-            const match = gid.match(/(\d+)$/);
-            return match ? match[1] : null;
-        }
-
-        async function getProductReviews(product) {
-            const numericId = extractNumericId(product.id);
-            if (!numericId) return null;
-
-            const url = 'https://judge.me/api/v1/widgets/preview_badge?shop_domain=' + JUDGEME_SHOP_DOMAIN + '&api_token=' + JUDGEME_PUBLIC_TOKEN + '&id=' + numericId;
-
+        // ============ Judge.me: get review count for a product (using handle, not raw Shopify numeric ID) ============
+        async function getProductReviewCount(product) {
+            const url = 'https://judge.me/api/v1/widgets/preview_badge?shop_domain=' + JUDGEME_SHOP_DOMAIN + '&api_token=' + JUDGEME_PUBLIC_TOKEN + '&handle=' + product.handle;
             try {
                 const res = await fetch(url);
                 const data = await res.json();
                 console.log('Judge.me response for "' + product.title + '":', data);
-                return data;
+
+                const html = data.html || data.widget || '';
+                const text = html.replace(/<[^>]+>/g, ' ');
+                const countMatch = text.match(/(\d+)\s*review/i);
+                const reviewCount = countMatch ? parseInt(countMatch[1], 10) : 0;
+
+                return { product: product, reviewCount: reviewCount };
             } catch (e) {
-                console.error('Judge.me fetch error:', e);
-                return null;
+                console.error('Judge.me fetch error for "' + product.title + '":', e);
+                return { product: product, reviewCount: 0 };
             }
         }
 
         // ============ Main router ============
         async function handleUserMessage(userMsg) {
-            // Local greeting shortcut — no API calls, instant
             if (isGreeting(userMsg)) {
-                addMessage("Hi! 👋 Aap mujhse nail polish ke rang, finish, sale, trending items, ya reviews ke baare mein pooch sakte ho.", 'bot');
+                addMessage("Hi! 👋 Ask me about nail polish colors, finishes, sale items, trending picks, or reviews.", 'bot');
                 return;
             }
 
@@ -211,11 +204,11 @@
                 const intent = parsed.intent || 'other';
 
                 if (intent === 'sale' || intent === 'trending') {
-                    const tag = intent; // uses literal "sale" / "trending" tag — make sure these tags exist on relevant products in Shopify admin
+                    const tag = intent;
                     const products = await searchProductsByTag(tag);
                     removeThinking();
                     if (!products.length) {
-                        addMessage("Filhal koi product '" + tag + "' tag ke saath stock mein nahi hai.", 'bot');
+                        addMessage("Sorry, no products are currently tagged as '" + tag + "'.", 'bot');
                         return;
                     }
                     lastShownProducts = products;
@@ -225,7 +218,7 @@
                     const products = await searchProductsByTag(parsed.tag);
                     removeThinking();
                     if (!products.length) {
-                        addMessage("Sorry, '<b>" + parsed.tag + "</b>' tag ke saath koi nail polish stock mein nahi hai.", 'bot');
+                        addMessage("Sorry, we don't have any nail polish matching '<b>" + parsed.tag + "</b>' in stock right now.", 'bot');
                         return;
                     }
                     lastShownProducts = products;
@@ -234,28 +227,37 @@
                 } else if (intent === 'review_question') {
                     removeThinking();
                     if (!lastShownProducts.length) {
-                        addMessage("Pehle koi product dekh lo, phir uske reviews puchna — main batata hoon kis product ki baat ho rahi hai.", 'bot');
+                        addMessage("Please check out a product first, then ask about its reviews so I know which one you mean.", 'bot');
                         return;
                     }
-                    const product = lastShownProducts[0];
-                    const reviewData = await getProductReviews(product);
-                    if (!reviewData) {
-                        addMessage("<b>" + product.title + "</b> ke reviews abhi fetch nahi ho paye — product page pe dekh lo: <a href='" + product.onlineStoreUrl + "' target='_blank' class='product-link'>Buy Here</a>", 'bot');
-                        return;
+
+                    addMessage('Checking reviews...', 'bot');
+                    const results = await Promise.all(lastShownProducts.map(getProductReviewCount));
+                    removeThinking();
+
+                    results.sort(function (a, b) { return b.reviewCount - a.reviewCount; });
+
+                    let reply = '';
+                    results.forEach(function (r) {
+                        reply += r.product.title + ' — ' + r.reviewCount + (r.reviewCount === 1 ? ' review' : ' reviews') + '<br>';
+                    });
+
+                    if (results[0].reviewCount > 0) {
+                        reply = '<b>' + results[0].product.title + '</b> has the most reviews (' + results[0].reviewCount + ').<br><br>' + reply;
+                    } else {
+                        reply = "None of these have reviews yet.<br><br>" + reply;
                     }
-                    // NOTE: Judge.me widget response shape — check browser console log above for exact field names,
-                    // adjust reviewData.average_rating / reviewData.review_count below if field names differ.
-                    addMessage("<b>" + product.title + "</b> ke reviews console mein log ho gaye hain (F12 se check karo exact rating/count fields) — full detail: <a href='" + product.onlineStoreUrl + "' target='_blank' class='product-link'>Buy Here</a>", 'bot');
+
+                    addMessage(reply, 'bot');
 
                 } else {
-                    // general chat fallback
                     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                         method: 'POST',
                         headers: { 'Authorization': 'Bearer ' + GROQ_KEY, 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             model: 'groq/compound-mini',
                             messages: [
-                                { role: 'system', content: 'You are a friendly nail polish store assistant. Keep replies short and only talk about nail polish / beauty topics.' },
+                                { role: 'system', content: 'You are a friendly nail polish store assistant for an Australian store. Always reply in English only, no matter what language the customer writes in. Keep replies short and only talk about nail polish / beauty topics.' },
                                 { role: 'user', content: userMsg }
                             ],
                             temperature: 0.5,
@@ -269,7 +271,7 @@
 
             } catch (err) {
                 removeThinking();
-                addMessage('Error connecting to AI.', 'bot');
+                addMessage('Sorry, something went wrong. Please try again.', 'bot');
                 console.error(err);
             }
         }
