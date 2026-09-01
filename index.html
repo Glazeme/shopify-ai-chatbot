@@ -7,20 +7,25 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 100vh; }
-        .chat-button { position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; border-radius: 50%; background: white; border: none; cursor: pointer; font-size: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-        .chat-window { position: fixed; bottom: 100px; right: 30px; width: 380px; height: 500px; background: white; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.2); display: none; flex-direction: column; }
+        .chat-button { position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; border-radius: 50%; background: white; border: none; cursor: pointer; font-size: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 1000;}
+        .chat-window { position: fixed; bottom: 100px; right: 30px; width: 380px; height: 500px; background: white; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.2); display: none; flex-direction: column; z-index: 1000;}
         .chat-window.active { display: flex; }
-        .chat-header { background: #667eea; color: white; padding: 16px; display: flex; justify-content: space-between; }
+        .chat-header { background: #667eea; color: white; padding: 16px; display: flex; justify-content: space-between; align-items: center; }
         .chat-messages { flex: 1; padding: 16px; overflow-y: auto; background: #f8f9fa; }
-        .message { margin-bottom: 12px; padding: 12px; border-radius: 12px; max-width: 85%; }
+        .message { margin-bottom: 12px; padding: 12px; border-radius: 12px; max-width: 85%; font-size: 14px; line-height: 1.4; }
         .message.bot { background: white; border: 1px solid #e0e0e0; }
         .message.user { background: #667eea; color: white; margin-left: auto; }
+        .quick-buttons { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; background: white; border-top: 1px solid #e0e0e0; }
+        .quick-btn { padding: 8px 12px; border: 1px solid #667eea; background: white; color: #667eea; border-radius: 20px; cursor: pointer; font-size: 12px; }
         .chat-input { display: flex; padding: 12px; border-top: 1px solid #e0e0e0; }
-        .chat-input input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 20px; }
+        .chat-input input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 20px; outline: none; }
         .chat-input button { margin-left: 8px; padding: 10px 16px; background: #667eea; color: white; border: none; border-radius: 20px; cursor: pointer; }
+        .product-link { color: #667eea; font-weight: bold; text-decoration: none; }
+        .product-link:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
+
     <div style="color: white; text-align: center; padding-top: 100px; font-size: 24px;">
         <h1>Shopify AI Chatbot</h1>
         <p>Bottom right corner mein button dekho!</p>
@@ -34,7 +39,12 @@
             <button onclick="toggleChat()" style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;">×</button>
         </div>
         <div class="chat-messages" id="chatMessages">
-            <div class="message bot">Hi! Ask me about nail polish!</div>
+            <div class="message bot">Hi! Ask me about nail polish colors or finishes!</div>
+        </div>
+        <div class="quick-buttons">
+            <button class="quick-btn" onclick="askAI('Show me red nail polish')">Red Polish</button>
+            <button class="quick-btn" onclick="askAI('Recommend for fair skin')">Fair Skin</button>
+            <button class="quick-btn" onclick="askAI('Show me matte finish')">Matte Finish</button>
         </div>
         <div class="chat-input">
             <input type="text" id="userInput" placeholder="Type message..." onkeypress="if(event.key==='Enter')sendMessage()">
@@ -43,34 +53,120 @@
     </div>
 
     <script>
-        function toggleChat() {
-            var chatWindow = document.getElementById('chatWindow');
-            if (chatWindow.classList.contains('active')) {
-                chatWindow.classList.remove('active');
-            } else {
-                chatWindow.classList.add('active');
+        // --- CONFIGURATION ---
+        const SHOPIFY_URL = 'https://glazeme-3.myshopify.com';
+        const SHOPIFY_TOKEN = 'e6673d9d9a5aa5981f1cd6a485aa5fd9';
+        // IMPORTANT: Apni Groq API key yahan paste karo
+        const GROQ_KEY = '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'; 
+
+        let productsList = [];
+
+        // 1. Shopify se Products Load Karo
+        async function loadProducts() {
+            try {
+                const query = "query { products(first: 50) { edges { node { title handle onlineStoreUrl tags variants(first: 1) { edges { node { price } } } } } } }";
+                
+                const res = await fetch(SHOPIFY_URL + '/api/2024-01/graphql.json', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Shopify-Storefront-Access-Token': SHOPIFY_TOKEN
+                    },
+                    body: JSON.stringify({ query: query })
+                });
+                
+                const data = await res.json();
+                const edges = data.data.products.edges;
+                
+                productsList = edges.map(e => {
+                    const node = e.node;
+                    const price = node.variants.edges[0] ? node.variants.edges[0].node.price : 'N/A';
+                    return "Name: " + node.title + " | Tags: " + node.tags.join(', ') + " | Price: " + price + " | Link: " + node.onlineStoreUrl;
+                });
+
+                console.log("Loaded " + productsList.length + " products.");
+            } catch (err) {
+                console.error("Shopify Error:", err);
             }
         }
 
+        loadProducts();
+
+        // 2. Chat Functions
+        function toggleChat() {
+            document.getElementById('chatWindow').classList.toggle('active');
+        }
+
+        function askAI(msg) {
+            addMessage(msg, 'user');
+            getResponse(msg);
+        }
+
         function sendMessage() {
-            var input = document.getElementById('userInput');
-            var message = input.value.trim();
-            if (message) {
-                addMessage(message, 'user');
+            const input = document.getElementById('userInput');
+            const msg = input.value.trim();
+            if (msg) {
+                addMessage(msg, 'user');
                 input.value = '';
-                setTimeout(function() {
-                    addMessage('Thanks for your message! AI integration coming soon.', 'bot');
-                }, 500);
+                getResponse(msg);
             }
         }
 
         function addMessage(text, sender) {
-            var messagesDiv = document.getElementById('chatMessages');
-            var messageDiv = document.createElement('div');
-            messageDiv.className = 'message ' + sender;
-            messageDiv.textContent = text;
-            messagesDiv.appendChild(messageDiv);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            const div = document.createElement('div');
+            div.className = 'message ' + sender;
+            div.innerHTML = text;
+            document.getElementById('chatMessages').appendChild(div);
+            document.getElementById('chatMessages').scrollTop = 99999;
+        }
+
+        // 3. AI Logic (Groq)
+        async function getResponse(userMsg) {
+            addMessage('Thinking...', 'bot');
+            
+            const inventoryText = productsList.length > 0 ? productsList.join('\n') : "No products loaded.";
+            
+            const systemPrompt = "You are a Nail Polish Assistant.\nINVENTORY:\n" + inventoryText + "\nRULES:\n1. Only English.\n2. Only Nail Polish.\n3. NEVER invent products. Only use INVENTORY.\n4. If match found, give Name and Link.\n5. If no match, say 'Not in stock' and show 2 random items from INVENTORY with Links.";
+
+            try {
+                const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + GROQ_KEY,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: 'groq/compound-mini',
+                        messages: [
+                            { role: 'system', content: systemPrompt },
+                            { role: 'user', content: userMsg }
+                        ],
+                        temperature: 0.3,
+                        max_tokens: 250
+                    })
+                });
+
+                const data = await res.json();
+                
+                // Remove 'Thinking...'
+                const msgs = document.getElementById('chatMessages').children;
+                if (msgs[msgs.length - 1].innerText === 'Thinking...') {
+                    msgs[msgs.length - 1].remove();
+                }
+
+                let reply = data.choices[0].message.content;
+                
+                // Links ko clickable banao
+                reply = reply.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" class="product-link">Buy Here</a>');
+                reply = reply.replace(/\n/g, '<br>');
+
+                addMessage(reply, 'bot');
+
+            } catch (err) {
+                const msgs = document.getElementById('chatMessages').children;
+                if (msgs[msgs.length - 1].innerText === 'Thinking...') msgs[msgs.length - 1].remove();
+                addMessage('Error connecting to AI.', 'bot');
+            }
         }
     </script>
 </body>
