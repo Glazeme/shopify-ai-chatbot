@@ -39,12 +39,13 @@
             <button onclick="toggleChat()" style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;">×</button>
         </div>
         <div class="chat-messages" id="chatMessages">
-            <div class="message bot">Hi! Ask me about nail polish colors or finishes!</div>
+            <div class="message bot">Hi! Ask me about nail polish colors, finishes, sale items, trending picks, or reviews!</div>
         </div>
         <div class="quick-buttons">
             <button class="quick-btn" onclick="askAI('Show me red nail polish')">Red Polish</button>
             <button class="quick-btn" onclick="askAI('Recommend for fair skin')">Fair Skin</button>
-            <button class="quick-btn" onclick="askAI('Show me matte finish')">Matte Finish</button>
+            <button class="quick-btn" onclick="askAI('Whats on sale')">On Sale</button>
+            <button class="quick-btn" onclick="askAI('Whats trending')">Trending</button>
         </div>
         <div class="chat-input">
             <input type="text" id="userInput" placeholder="Type message..." onkeypress="if(event.key==='Enter')sendMessage()">
@@ -53,19 +54,26 @@
     </div>
 
     <script>
-        // --- CONFIGURATION ---
+        // ============ CONFIGURATION ============
         const SHOPIFY_URL = 'https://ht0wa5-70.myshopify.com';
         const SHOPIFY_TOKEN = 'e6673d9d9a5aa5981f1cd6a485aa5fd9';
         const GROQ_KEY = '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';
 
-        // 1. Chat UI Functions
+        // TODO: Judge.me Settings > Integrations > View API tokens > PUBLIC token yahan daalo
+        const JUDGEME_PUBLIC_TOKEN = 'dw8vRbFC_Stqw2a1kDAz2GDx6zo';
+        const JUDGEME_SHOP_DOMAIN = 'ht0wa5-70.myshopify.com';
+
+        // Conversation memory: last products shown, so "iske reviews?" jaisa follow-up samajh aaye
+        let lastShownProducts = [];
+
+        // ============ CHAT UI ============
         function toggleChat() {
             document.getElementById('chatWindow').classList.toggle('active');
         }
 
         function askAI(msg) {
             addMessage(msg, 'user');
-            getResponse(msg);
+            handleUserMessage(msg);
         }
 
         function sendMessage() {
@@ -74,7 +82,7 @@
             if (msg) {
                 addMessage(msg, 'user');
                 input.value = '';
-                getResponse(msg);
+                handleUserMessage(msg);
             }
         }
 
@@ -86,16 +94,38 @@
             document.getElementById('chatMessages').scrollTop = 99999;
         }
 
-        // 2. STEP 1: Groq se user ke message se search tag/keyword nikalwao
-        async function extractTag(userMsg) {
-            const systemPrompt = "You are a keyword extractor for a nail polish store chatbot. From the user's message, extract ONLY the single most relevant search tag — this could be a color (red, pink, nude), a finish (matte, glossy, glitter), or a skin tone match (fair skin, dark skin, medium skin). Reply with ONLY that keyword/phrase in lowercase. No sentence, no punctuation, no explanation, nothing else.";
+        function removeThinking() {
+            const msgs = document.getElementById('chatMessages').children;
+            if (msgs.length && msgs[msgs.length - 1].innerText === 'Thinking...') {
+                msgs[msgs.length - 1].remove();
+            }
+        }
+
+        // ============ STEP 1: Local greeting check (no API call needed, fast + free) ============
+        function isGreeting(msg) {
+            const greetings = ['hi', 'hii', 'hiii', 'hello', 'hey', 'salam', 'assalam', 'aoa', 'asalam'];
+            const cleaned = msg.trim().toLowerCase().replace(/[^a-z]/g, '');
+            return greetings.includes(cleaned);
+        }
+
+        // ============ STEP 2: Intent classification (Groq) ============
+        // Returns: { intent: "greeting"|"product_search"|"sale"|"trending"|"review_question"|"other", tag: "..." }
+        async function classifyIntent(userMsg) {
+            const hasLastProduct = lastShownProducts.length > 0;
+            const systemPrompt =
+                "You are an intent classifier for a nail polish store chatbot.\n" +
+                "Reply with ONLY a compact JSON object, nothing else, no markdown, no explanation.\n" +
+                "Format: {\"intent\": \"product_search\" | \"sale\" | \"trending\" | \"review_question\" | \"other\", \"tag\": \"<lowercase search tag or null>\"}\n" +
+                "Rules:\n" +
+                "- intent=sale if user asks about discounts/sale items. tag should be null.\n" +
+                "- intent=trending if user asks about popular/trending items. tag should be null.\n" +
+                "- intent=review_question if user asks about reviews, ratings, feedback, opinions about a product" + (hasLastProduct ? " (a product was already shown, so this likely refers to it)" : "") + ". tag should be null.\n" +
+                "- intent=product_search if user is asking to find/recommend a nail polish by color, finish, or skin tone. tag = that color/finish/skin-tone keyword in lowercase.\n" +
+                "- intent=other for anything else (small talk, unrelated questions). tag should be null.";
 
             const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                 method: 'POST',
-                headers: {
-                    'Authorization': 'Bearer ' + GROQ_KEY,
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Authorization': 'Bearer ' + GROQ_KEY, 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     model: 'groq/compound-mini',
                     messages: [
@@ -103,67 +133,142 @@
                         { role: 'user', content: userMsg }
                     ],
                     temperature: 0,
-                    max_tokens: 20
+                    max_tokens: 60
                 })
             });
             const data = await res.json();
-            let tag = data.choices[0].message.content || '';
-            tag = tag.trim().toLowerCase().replace(/["'.]/g, '');
-            return tag;
+            let raw = (data.choices && data.choices[0].message.content) || '{}';
+            raw = raw.replace(/```json|```/g, '').trim();
+            try {
+                return JSON.parse(raw);
+            } catch (e) {
+                console.error('Intent JSON parse fail:', raw);
+                return { intent: 'other', tag: null };
+            }
         }
 
-        // 3. STEP 2: Shopify se SIRF us tag ke matching products maango (poora catalog load nahi karna)
+        // ============ Shopify: search products by tag ============
         async function searchProductsByTag(tag) {
             const searchQuery = "tag:'" + tag + "'";
-            const query = "query($q: String!) { products(first: 10, query: $q) { edges { node { title tags onlineStoreUrl variants(first: 1) { edges { node { price { amount currencyCode } } } } } } } }";
+            const query = "query($q: String!) { products(first: 10, query: $q) { edges { node { id title tags onlineStoreUrl variants(first: 1) { edges { node { price { amount currencyCode } } } } } } } }";
 
             const res = await fetch(SHOPIFY_URL + '/api/2025-10/graphql.json', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Shopify-Storefront-Access-Token': SHOPIFY_TOKEN
-                },
+                headers: { 'Content-Type': 'application/json', 'X-Shopify-Storefront-Access-Token': SHOPIFY_TOKEN },
                 body: JSON.stringify({ query: query, variables: { q: searchQuery } })
             });
-
             const data = await res.json();
             console.log("Shopify Search Response (tag='" + tag + "'):", data);
-
             if (!data.data || !data.data.products) return [];
             return data.data.products.edges.map(e => e.node);
         }
 
-        // 4. Main flow: tag nikalo -> Shopify se filtered products maango -> reply banao
-        async function getResponse(userMsg) {
+        function renderProducts(products) {
+            let reply = '';
+            products.forEach(function (p) {
+                const price = p.variants.edges[0] ? p.variants.edges[0].node.price.amount : 'N/A';
+                reply += '<b>' + p.title + '</b> — Rs. ' + price + ' — <a href="' + p.onlineStoreUrl + '" target="_blank" class="product-link">Buy Here</a><br>';
+            });
+            return reply;
+        }
+
+        // ============ Judge.me: get review rating + count for a product ============
+        // Extracts numeric Shopify product ID from the GraphQL "gid://shopify/Product/12345" format
+        function extractNumericId(gid) {
+            const match = gid.match(/(\d+)$/);
+            return match ? match[1] : null;
+        }
+
+        async function getProductReviews(product) {
+            const numericId = extractNumericId(product.id);
+            if (!numericId) return null;
+
+            const url = 'https://judge.me/api/v1/widgets/preview_badge?shop_domain=' + JUDGEME_SHOP_DOMAIN + '&api_token=' + JUDGEME_PUBLIC_TOKEN + '&id=' + numericId;
+
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                console.log('Judge.me response for "' + product.title + '":', data);
+                return data;
+            } catch (e) {
+                console.error('Judge.me fetch error:', e);
+                return null;
+            }
+        }
+
+        // ============ Main router ============
+        async function handleUserMessage(userMsg) {
+            // Local greeting shortcut — no API calls, instant
+            if (isGreeting(userMsg)) {
+                addMessage("Hi! 👋 Aap mujhse nail polish ke rang, finish, sale, trending items, ya reviews ke baare mein pooch sakte ho.", 'bot');
+                return;
+            }
+
             addMessage('Thinking...', 'bot');
 
             try {
-                const tag = await extractTag(userMsg);
-                const products = await searchProductsByTag(tag);
+                const parsed = await classifyIntent(userMsg);
+                const intent = parsed.intent || 'other';
 
-                const msgs = document.getElementById('chatMessages').children;
-                if (msgs[msgs.length - 1].innerText === 'Thinking...') {
-                    msgs[msgs.length - 1].remove();
+                if (intent === 'sale' || intent === 'trending') {
+                    const tag = intent; // uses literal "sale" / "trending" tag — make sure these tags exist on relevant products in Shopify admin
+                    const products = await searchProductsByTag(tag);
+                    removeThinking();
+                    if (!products.length) {
+                        addMessage("Filhal koi product '" + tag + "' tag ke saath stock mein nahi hai.", 'bot');
+                        return;
+                    }
+                    lastShownProducts = products;
+                    addMessage(renderProducts(products), 'bot');
+
+                } else if (intent === 'product_search' && parsed.tag) {
+                    const products = await searchProductsByTag(parsed.tag);
+                    removeThinking();
+                    if (!products.length) {
+                        addMessage("Sorry, '<b>" + parsed.tag + "</b>' tag ke saath koi nail polish stock mein nahi hai.", 'bot');
+                        return;
+                    }
+                    lastShownProducts = products;
+                    addMessage(renderProducts(products), 'bot');
+
+                } else if (intent === 'review_question') {
+                    removeThinking();
+                    if (!lastShownProducts.length) {
+                        addMessage("Pehle koi product dekh lo, phir uske reviews puchna — main batata hoon kis product ki baat ho rahi hai.", 'bot');
+                        return;
+                    }
+                    const product = lastShownProducts[0];
+                    const reviewData = await getProductReviews(product);
+                    if (!reviewData) {
+                        addMessage("<b>" + product.title + "</b> ke reviews abhi fetch nahi ho paye — product page pe dekh lo: <a href='" + product.onlineStoreUrl + "' target='_blank' class='product-link'>Buy Here</a>", 'bot');
+                        return;
+                    }
+                    // NOTE: Judge.me widget response shape — check browser console log above for exact field names,
+                    // adjust reviewData.average_rating / reviewData.review_count below if field names differ.
+                    addMessage("<b>" + product.title + "</b> ke reviews console mein log ho gaye hain (F12 se check karo exact rating/count fields) — full detail: <a href='" + product.onlineStoreUrl + "' target='_blank' class='product-link'>Buy Here</a>", 'bot');
+
+                } else {
+                    // general chat fallback
+                    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + GROQ_KEY, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            model: 'groq/compound-mini',
+                            messages: [
+                                { role: 'system', content: 'You are a friendly nail polish store assistant. Keep replies short and only talk about nail polish / beauty topics.' },
+                                { role: 'user', content: userMsg }
+                            ],
+                            temperature: 0.5,
+                            max_tokens: 150
+                        })
+                    });
+                    const data = await res.json();
+                    removeThinking();
+                    addMessage(data.choices[0].message.content, 'bot');
                 }
-
-                if (!products || products.length === 0) {
-                    addMessage("Sorry, '<b>" + tag + "</b>' tag ke saath koi nail polish stock mein nahi hai.", 'bot');
-                    return;
-                }
-
-                let reply = '';
-                products.forEach(function (p) {
-                    const price = p.variants.edges[0] ? p.variants.edges[0].node.price.amount : 'N/A';
-                    reply += '<b>' + p.title + '</b> — Rs. ' + price + ' — <a href="' + p.onlineStoreUrl + '" target="_blank" class="product-link">Buy Here</a><br>';
-                });
-
-                addMessage(reply, 'bot');
 
             } catch (err) {
-                const msgs = document.getElementById('chatMessages').children;
-                if (msgs[msgs.length - 1] && msgs[msgs.length - 1].innerText === 'Thinking...') {
-                    msgs[msgs.length - 1].remove();
-                }
+                removeThinking();
                 addMessage('Error connecting to AI.', 'bot');
                 console.error(err);
             }
