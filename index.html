@@ -65,7 +65,7 @@
     <script>
         const SHOPIFY_STORE_URL = 'https://glazeme-3.myshopify.com';
         const SHOPIFY_STOREFRONT_TOKEN = 'e6673d9d9a5aa5981f1cd6a485aa5fd9';
-        const GROQ_API_KEY = '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'; // Apni key yahan
+        const GROQ_API_KEY = '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; // Apni key yahan
 
         let productsData = [];
 
@@ -103,17 +103,17 @@
 
                 const data = await response.json();
                 productsData = data.data.products.edges.map(edge => edge.node);
-                console.log('Products loaded:', productsData.length);
+                console.log('✅ Products loaded:', productsData.length);
+                console.log('Products:', productsData); // Debugging ke liye
             } catch (error) {
-                console.error('Error fetching products:', error);
+                console.error('❌ Error fetching products:', error);
             }
         }
 
         fetchProducts();
 
         function toggleChat() {
-            const chatWindow = document.getElementById('chatWindow');
-            chatWindow.classList.toggle('active');
+            document.getElementById('chatWindow').classList.toggle('active');
         }
 
         function sendQuickMessage(message) {
@@ -142,7 +142,8 @@
                     ).join('\n');
                 }
 
-                const systemPrompt = 'You are a NAIL POLISH shopping assistant.\n\nYOUR INVENTORY (ONLY THESE PRODUCTS EXIST):\n' + productListText + '\n\nSTRICT RULES:\n1. ONLY reply in ENGLISH.\n2. ONLY discuss NAIL POLISH.\n3. NEVER INVENT PRODUCTS. Only recommend from the list above.\n4. If user asks for something, check Tags in inventory. If match found, recommend it with Link.\n5. If NO match, reply: "Sorry, we do not have that in stock."\n6. Keep answers SHORT (2-3 lines).\n7. Format: "I recommend [Product Name] ([Link])"';
+                // SMART PROMPT: Case-insensitive matching aur fallback logic
+                const systemPrompt = 'You are a NAIL POLISH shopping assistant.\n\nYOUR INVENTORY:\n' + productListText + '\n\nSTRICT RULES:\n1. ONLY reply in ENGLISH.\n2. ONLY discuss NAIL POLISH.\n3. NEVER INVENT PRODUCTS.\n4. Be SMART with matching: "red" matches "Red", "matte" matches "Matte". Look at Tags carefully.\n5. If you find a match, recommend it with the Link.\n6. IMPORTANT: If NO exact match is found, DO NOT say sorry. Instead say: "We do not have that exact type right now, but here are our available polishes:" and then list ALL products from the inventory with their Links.\n7. Keep answers SHORT.';
 
                 const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
                     method: 'POST',
@@ -157,7 +158,7 @@
                             { role: 'user', content: userMessage }
                         ],
                         temperature: 0.3,
-                        max_tokens: 200
+                        max_tokens: 300
                     })
                 });
 
@@ -208,9 +209,7 @@
         }
 
         function handleKeyPress(event) {
-            if (event.key === 'Enter') {
-                sendMessage();
-            }
+            if (event.key === 'Enter') sendMessage();
         }
     </script>
 
