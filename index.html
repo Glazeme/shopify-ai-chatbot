@@ -64,9 +64,11 @@
         // 1. Shopify se Products Load Karo
         async function loadProducts() {
             try {
-                const query = "query { products(first: 50) { edges { node { title handle onlineStoreUrl tags variants(first: 1) { edges { node { price } } } } } } }";
-                
-                const res = await fetch(SHOPIFY_URL + '/api/2024-01/graphql.json', {
+                // FIX 1: price ab MoneyV2 object hai, isliye amount + currencyCode select karna zaroori hai
+                const query = "query { products(first: 50) { edges { node { title handle onlineStoreUrl tags variants(first: 1) { edges { node { price { amount currencyCode } } } } } } } }";
+
+                // FIX 2: API version update ki (2024-01 outdated ho chuka tha)
+                const res = await fetch(SHOPIFY_URL + '/api/2025-10/graphql.json', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -88,7 +90,8 @@ const edges = data.data.products.edges;
                 
                 productsList = edges.map(e => {
                     const node = e.node;
-                    const price = node.variants.edges[0] ? node.variants.edges[0].node.price : 'N/A';
+                    // FIX 3: price.amount use karo (kyunki price ab object hai)
+                    const price = node.variants.edges[0] ? node.variants.edges[0].node.price.amount : 'N/A';
                     return "Name: " + node.title + " | Tags: " + node.tags.join(', ') + " | Price: " + price + " | Link: " + node.onlineStoreUrl;
                 });
 
