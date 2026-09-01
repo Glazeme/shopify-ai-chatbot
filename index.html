@@ -178,12 +178,13 @@
                 const data = await res.json();
                 console.log('Judge.me response for "' + product.title + '":', data);
 
-                const html = data.html || data.widget || '';
-                const text = html.replace(/<[^>]+>/g, ' ');
-                const countMatch = text.match(/(\d+)\s*review/i);
-                const reviewCount = countMatch ? parseInt(countMatch[1], 10) : 0;
+                const badgeHtml = data.badge || '';
+                const reviewMatch = badgeHtml.match(/data-number-of-reviews=['"](\d+)['"]/);
+                const ratingMatch = badgeHtml.match(/data-average-rating=['"]([\d.]+)['"]/);
+                const reviewCount = reviewMatch ? parseInt(reviewMatch[1], 10) : 0;
+                const avgRating = ratingMatch ? parseFloat(ratingMatch[1]) : 0;
 
-                return { product: product, reviewCount: reviewCount };
+                return { product: product, reviewCount: reviewCount, avgRating: avgRating };
             } catch (e) {
                 console.error('Judge.me fetch error for "' + product.title + '":', e);
                 return { product: product, reviewCount: 0 };
@@ -239,11 +240,11 @@
 
                     let reply = '';
                     results.forEach(function (r) {
-                        reply += r.product.title + ' — ' + r.reviewCount + (r.reviewCount === 1 ? ' review' : ' reviews') + '<br>';
+                        reply += r.product.title + ' — ' + r.reviewCount + (r.reviewCount === 1 ? ' review' : ' reviews') + (r.reviewCount > 0 ? ' (' + r.avgRating.toFixed(1) + ' ★)' : '') + '<br>';
                     });
 
                     if (results[0].reviewCount > 0) {
-                        reply = '<b>' + results[0].product.title + '</b> has the most reviews (' + results[0].reviewCount + ').<br><br>' + reply;
+                        reply = '<b>' + results[0].product.title + '</b> has the most reviews (' + results[0].reviewCount + ', ' + results[0].avgRating.toFixed(1) + ' ★).<br><br>' + reply;
                     } else {
                         reply = "None of these have reviews yet.<br><br>" + reply;
                     }
