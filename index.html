@@ -39,13 +39,13 @@
             <button onclick="toggleChat()" style="background: none; border: none; color: white; font-size: 24px; cursor: pointer;">×</button>
         </div>
         <div class="chat-messages" id="chatMessages">
-            <div class="message bot">Hi! Ask me about nail polish colors, finishes, sale items, trending picks, or reviews!</div>
+            <div class="message bot">Hi! Ask me about nail polish colors, finishes, sale items, trending picks, reviews, or your cart!</div>
         </div>
         <div class="quick-buttons">
             <button class="quick-btn" onclick="askAI('Show me red nail polish')">Red Polish</button>
             <button class="quick-btn" onclick="askAI('Recommend for fair skin')">Fair Skin</button>
             <button class="quick-btn" onclick="askAI('Whats on sale')">On Sale</button>
-            <button class="quick-btn" onclick="askAI('Whats trending')">Trending</button>
+            <button class="quick-btn" onclick="askAI('Whats in my cart')">My Cart</button>
         </div>
         <div class="chat-input">
             <input type="text" id="userInput" placeholder="Type message..." onkeypress="if(event.key==='Enter')sendMessage()">
@@ -57,13 +57,24 @@
         // ============ CONFIGURATION ============
         const SHOPIFY_URL = 'https://ht0wa5-70.myshopify.com';
         const SHOPIFY_TOKEN = 'e6673d9d9a5aa5981f1cd6a485aa5fd9';
+        const API_VERSION = '2025-10';
         const GROQ_KEY = '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';
 
         const JUDGEME_PUBLIC_TOKEN = 'dw8vRbFC_Stqw2a1kDAz2GDx6zo';
         const JUDGEME_SHOP_DOMAIN = 'ht0wa5-70.myshopify.com';
 
-        // Conversation memory: last products shown, so "which one has more reviews?" makes sense
+        // Conversation memory: last products shown, so follow-ups like "which has more reviews?" or "add that to cart" make sense
         let lastShownProducts = [];
+
+        // ============ Shared helper: call Shopify Storefront GraphQL ============
+        async function shopifyGraphQL(query, variables) {
+            const res = await fetch(SHOPIFY_URL + '/api/' + API_VERSION + '/graphql.json', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Shopify-Storefront-Access-Token': SHOPIFY_TOKEN },
+                body: JSON.stringify({ query: query, variables: variables || {} })
+            });
+            return res.json();
+        }
 
         // ============ CHAT UI ============
         function toggleChat() {
@@ -113,12 +124,17 @@
             const systemPrompt =
                 "You are an intent classifier for a nail polish store chatbot.\n" +
                 "Reply with ONLY a compact JSON object, nothing else, no markdown, no explanation.\n" +
-                "Format: {\"intent\": \"product_search\" | \"sale\" | \"trending\" | \"review_question\" | \"other\", \"tag\": \"<lowercase search tag or null>\"}\n" +
+                "Format: {\"intent\": \"product_search\" | \"sale\" | \"trending\" | \"review_question\" | \"cart_add\" | \"cart_view\" | \"cart_update\" | \"cart_remove\" | \"checkout\" | \"other\", \"tag\": \"<lowercase search tag or null>\", \"product_name\": \"<product name mentioned or null>\", \"quantity\": <number or null>}\n" +
                 "Rules:\n" +
                 "- intent=sale if user asks about discounts/sale items. tag should be null.\n" +
                 "- intent=trending if user asks about popular/trending items. tag should be null.\n" +
                 "- intent=review_question if user asks about reviews, ratings, feedback, or which product has more/better reviews" + (hasLastProduct ? " (products were already shown, this refers to them)" : "") + ". tag should be null.\n" +
                 "- intent=product_search if user is asking to find/recommend a nail polish by color, finish, or skin tone. tag = that color/finish/skin-tone keyword in lowercase.\n" +
+                "- intent=cart_add if user wants to add a product to their cart (e.g. 'add X', 'I want X', 'put X in my cart'). product_name = the product name mentioned. quantity = number mentioned, else 1.\n" +
+                "- intent=cart_view if user asks what's in their cart, or to see their cart.\n" +
+                "- intent=cart_update if user wants to change the quantity of something already in their cart (e.g. 'make that 2', 'change quantity to 3'). product_name = product mentioned or null if referring to the last added item. quantity = the new number.\n" +
+                "- intent=cart_remove if user wants to remove something from their cart. product_name = product mentioned.\n" +
+                "- intent=checkout if user wants to checkout, pay, or get a payment link.\n" +
                 "- intent=other for anything else (small talk, unrelated questions). tag should be null.";
 
             const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -131,7 +147,7 @@
                         { role: 'user', content: userMsg }
                     ],
                     temperature: 0,
-                    max_tokens: 60
+                    max_tokens: 100
                 })
             });
             const data = await res.json();
@@ -141,24 +157,32 @@
                 return JSON.parse(raw);
             } catch (e) {
                 console.error('Intent JSON parse fail:', raw);
-                return { intent: 'other', tag: null };
+                return { intent: 'other' };
             }
         }
 
         // ============ Shopify: search products by tag ============
         async function searchProductsByTag(tag) {
             const searchQuery = "tag:'" + tag + "'";
-            const query = "query($q: String!) { products(first: 10, query: $q) { edges { node { id handle title tags onlineStoreUrl variants(first: 1) { edges { node { price { amount currencyCode } } } } } } } }";
-
-            const res = await fetch(SHOPIFY_URL + '/api/2025-10/graphql.json', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Shopify-Storefront-Access-Token': SHOPIFY_TOKEN },
-                body: JSON.stringify({ query: query, variables: { q: searchQuery } })
-            });
-            const data = await res.json();
+            const query = "query($q: String!) { products(first: 10, query: $q) { edges { node { id handle title tags onlineStoreUrl variants(first: 1) { edges { node { id price { amount currencyCode } } } } } } } }";
+            const data = await shopifyGraphQL(query, { q: searchQuery });
             console.log("Shopify Search Response (tag='" + tag + "'):", data);
             if (!data.data || !data.data.products) return [];
             return data.data.products.edges.map(e => e.node);
+        }
+
+        // ============ Shopify: find a product by name (checks recently shown first, else searches store) ============
+        async function findProductByName(name) {
+            if (!name) return null;
+            const lower = name.toLowerCase();
+
+            const found = lastShownProducts.find(function (p) { return p.title.toLowerCase().indexOf(lower) !== -1; });
+            if (found) return found;
+
+            const query = "query($q: String!) { products(first: 5, query: $q) { edges { node { id handle title onlineStoreUrl variants(first: 1) { edges { node { id price { amount currencyCode } } } } } } } }";
+            const data = await shopifyGraphQL(query, { q: "title:*" + name + "*" });
+            const edges = (data.data && data.data.products) ? data.data.products.edges : [];
+            return edges.length ? edges[0].node : null;
         }
 
         function renderProducts(products) {
@@ -170,7 +194,7 @@
             return reply;
         }
 
-        // ============ Judge.me: get review count for a product (using handle, not raw Shopify numeric ID) ============
+        // ============ Judge.me: get review count for a product (via handle) ============
         async function getProductReviewCount(product) {
             const url = 'https://judge.me/api/v1/widgets/preview_badge?shop_domain=' + JUDGEME_SHOP_DOMAIN + '&api_token=' + JUDGEME_PUBLIC_TOKEN + '&handle=' + product.handle;
             try {
@@ -191,10 +215,82 @@
             }
         }
 
+        // ============ CART: id persisted in localStorage so it survives page reloads ============
+        function getCartId() { return localStorage.getItem('glazeme_cart_id'); }
+        function setCartId(id) { localStorage.setItem('glazeme_cart_id', id); }
+
+        async function getOrCreateCart() {
+            let cartId = getCartId();
+            if (cartId) {
+                const check = await shopifyGraphQL("query($id: ID!) { cart(id: $id) { id } }", { id: cartId });
+                if (check.data && check.data.cart) return cartId;
+            }
+            const data = await shopifyGraphQL("mutation { cartCreate(input: {}) { cart { id } userErrors { message } } }");
+            cartId = data.data.cartCreate.cart.id;
+            setCartId(cartId);
+            return cartId;
+        }
+
+        async function addToCart(productName, quantity) {
+            const product = await findProductByName(productName);
+            if (!product) return { error: "Sorry, I couldn't find a product called '" + productName + "'." };
+            const variantId = product.variants.edges[0] && product.variants.edges[0].node.id;
+            if (!variantId) return { error: "That product isn't available for purchase right now." };
+
+            const cartId = await getOrCreateCart();
+            const mutation = "mutation($cartId: ID!, $lines: [CartLineInput!]!) { cartLinesAdd(cartId: $cartId, lines: $lines) { cart { id checkoutUrl } userErrors { message } } }";
+            const data = await shopifyGraphQL(mutation, { cartId: cartId, lines: [{ merchandiseId: variantId, quantity: quantity || 1 }] });
+            console.log('cartLinesAdd response:', data);
+            if (data.data.cartLinesAdd.userErrors.length) return { error: data.data.cartLinesAdd.userErrors[0].message };
+            return { success: true, product: product, checkoutUrl: data.data.cartLinesAdd.cart.checkoutUrl };
+        }
+
+        async function viewCart() {
+            const cartId = getCartId();
+            if (!cartId) return null;
+            const query = "query($id: ID!) { cart(id: $id) { id checkoutUrl lines(first: 50) { edges { node { id quantity merchandise { ... on ProductVariant { title product { title } price { amount currencyCode } } } } } } cost { totalAmount { amount currencyCode } } } }";
+            const data = await shopifyGraphQL(query, { id: cartId });
+            console.log('viewCart response:', data);
+            return data.data ? data.data.cart : null;
+        }
+
+        async function updateCartQuantity(productName, quantity) {
+            const cart = await viewCart();
+            if (!cart || !cart.lines.edges.length) return { error: "Your cart is empty." };
+
+            let line;
+            if (productName) {
+                const lower = productName.toLowerCase();
+                line = cart.lines.edges.find(function (e) { return e.node.merchandise.product.title.toLowerCase().indexOf(lower) !== -1; });
+            } else {
+                line = cart.lines.edges[cart.lines.edges.length - 1]; // most recently added
+            }
+            if (!line) return { error: "I couldn't find '" + productName + "' in your cart." };
+
+            const mutation = "mutation($cartId: ID!, $lines: [CartLineUpdateInput!]!) { cartLinesUpdate(cartId: $cartId, lines: $lines) { cart { id } userErrors { message } } }";
+            const data = await shopifyGraphQL(mutation, { cartId: cart.id, lines: [{ id: line.node.id, quantity: quantity }] });
+            if (data.data.cartLinesUpdate.userErrors.length) return { error: data.data.cartLinesUpdate.userErrors[0].message };
+            return { success: true, productTitle: line.node.merchandise.product.title };
+        }
+
+        async function removeFromCart(productName) {
+            const cart = await viewCart();
+            if (!cart || !cart.lines.edges.length) return { error: "Your cart is already empty." };
+
+            const lower = (productName || '').toLowerCase();
+            const line = cart.lines.edges.find(function (e) { return e.node.merchandise.product.title.toLowerCase().indexOf(lower) !== -1; });
+            if (!line) return { error: "I couldn't find '" + productName + "' in your cart." };
+
+            const mutation = "mutation($cartId: ID!, $lineIds: [ID!]!) { cartLinesRemove(cartId: $cartId, lineIds: $lineIds) { cart { id } userErrors { message } } }";
+            const data = await shopifyGraphQL(mutation, { cartId: cart.id, lineIds: [line.node.id] });
+            if (data.data.cartLinesRemove.userErrors.length) return { error: data.data.cartLinesRemove.userErrors[0].message };
+            return { success: true, productTitle: line.node.merchandise.product.title };
+        }
+
         // ============ Main router ============
         async function handleUserMessage(userMsg) {
             if (isGreeting(userMsg)) {
-                addMessage("Hi! 👋 Ask me about nail polish colors, finishes, sale items, trending picks, or reviews.", 'bot');
+                addMessage("Hi! 👋 Ask me about nail polish colors, finishes, sale items, trending picks, reviews, or your cart.", 'bot');
                 return;
             }
 
@@ -231,25 +327,55 @@
                         addMessage("Please check out a product first, then ask about its reviews so I know which one you mean.", 'bot');
                         return;
                     }
-
                     addMessage('Checking reviews...', 'bot');
                     const results = await Promise.all(lastShownProducts.map(getProductReviewCount));
                     removeThinking();
-
                     results.sort(function (a, b) { return b.reviewCount - a.reviewCount; });
-
                     let reply = '';
                     results.forEach(function (r) {
                         reply += r.product.title + ' — ' + r.reviewCount + (r.reviewCount === 1 ? ' review' : ' reviews') + (r.reviewCount > 0 ? ' (' + r.avgRating.toFixed(1) + ' ★)' : '') + '<br>';
                     });
-
                     if (results[0].reviewCount > 0) {
                         reply = '<b>' + results[0].product.title + '</b> has the most reviews (' + results[0].reviewCount + ', ' + results[0].avgRating.toFixed(1) + ' ★).<br><br>' + reply;
                     } else {
                         reply = "None of these have reviews yet.<br><br>" + reply;
                     }
-
                     addMessage(reply, 'bot');
+
+                } else if (intent === 'cart_add') {
+                    const result = await addToCart(parsed.product_name, parsed.quantity || 1);
+                    removeThinking();
+                    if (result.error) { addMessage(result.error, 'bot'); return; }
+                    addMessage("Added <b>" + result.product.title + "</b> (x" + (parsed.quantity || 1) + ") to your cart. <a href='" + result.checkoutUrl + "' target='_blank' class='product-link'>View Checkout</a>", 'bot');
+
+                } else if (intent === 'cart_view') {
+                    const cart = await viewCart();
+                    removeThinking();
+                    if (!cart || !cart.lines.edges.length) { addMessage("Your cart is empty.", 'bot'); return; }
+                    let reply = '';
+                    cart.lines.edges.forEach(function (e) {
+                        reply += e.node.quantity + 'x ' + e.node.merchandise.product.title + ' — $' + e.node.merchandise.price.amount + '<br>';
+                    });
+                    reply += '<br><b>Total: $' + cart.cost.totalAmount.amount + '</b>';
+                    addMessage(reply, 'bot');
+
+                } else if (intent === 'cart_update') {
+                    const result = await updateCartQuantity(parsed.product_name, parsed.quantity || 1);
+                    removeThinking();
+                    if (result.error) { addMessage(result.error, 'bot'); return; }
+                    addMessage("Updated <b>" + result.productTitle + "</b> to quantity " + (parsed.quantity || 1) + ".", 'bot');
+
+                } else if (intent === 'cart_remove') {
+                    const result = await removeFromCart(parsed.product_name);
+                    removeThinking();
+                    if (result.error) { addMessage(result.error, 'bot'); return; }
+                    addMessage("Removed <b>" + result.productTitle + "</b> from your cart.", 'bot');
+
+                } else if (intent === 'checkout') {
+                    const cart = await viewCart();
+                    removeThinking();
+                    if (!cart || !cart.lines.edges.length) { addMessage("Your cart is empty — add something first!", 'bot'); return; }
+                    addMessage("Ready when you are: <a href='" + cart.checkoutUrl + "' target='_blank' class='product-link'>Proceed to Checkout</a>", 'bot');
 
                 } else {
                     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
