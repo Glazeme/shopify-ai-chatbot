@@ -164,11 +164,15 @@
         // ============ Shopify: search products by tag ============
         async function searchProductsByTag(tag) {
             const searchQuery = "tag:'" + tag + "'";
-            const query = "query($q: String!) { products(first: 10, query: $q) { edges { node { id handle title tags onlineStoreUrl variants(first: 1) { edges { node { id price { amount currencyCode } } } } } } } }";
+            const query = "query($q: String!) { products(first: 10, query: $q) { edges { node { id handle title tags onlineStoreUrl variants(first: 1) { edges { node { id availableForSale price { amount currencyCode } } } } } } } }";
             const data = await shopifyGraphQL(query, { q: searchQuery });
             console.log("Shopify Search Response (tag='" + tag + "'):", data);
             if (!data.data || !data.data.products) return [];
-            return data.data.products.edges.map(e => e.node);
+            const allProducts = data.data.products.edges.map(e => e.node);
+            // Only recommend products that are actually in stock
+            return allProducts.filter(function (p) {
+                return p.variants.edges[0] && p.variants.edges[0].node.availableForSale;
+            });
         }
 
         // ============ Shopify: find a product by name (checks recently shown first, else searches store) ============
@@ -179,7 +183,7 @@
             const found = lastShownProducts.find(function (p) { return p.title.toLowerCase().indexOf(lower) !== -1; });
             if (found) return found;
 
-            const query = "query($q: String!) { products(first: 5, query: $q) { edges { node { id handle title onlineStoreUrl variants(first: 1) { edges { node { id price { amount currencyCode } } } } } } } }";
+            const query = "query($q: String!) { products(first: 5, query: $q) { edges { node { id handle title onlineStoreUrl variants(first: 1) { edges { node { id availableForSale price { amount currencyCode } } } } } } } }";
             const data = await shopifyGraphQL(query, { q: "title:*" + name + "*" });
             const edges = (data.data && data.data.products) ? data.data.products.edges : [];
             return edges.length ? edges[0].node : null;
@@ -234,12 +238,13 @@
         async function addToCart(productName, quantity) {
             const product = await findProductByName(productName);
             if (!product) return { error: "Sorry, I couldn't find a product called '" + productName + "'." };
-            const variantId = product.variants.edges[0] && product.variants.edges[0].node.id;
-            if (!variantId) return { error: "That product isn't available for purchase right now." };
+            const variant = product.variants.edges[0] && product.variants.edges[0].node;
+            if (!variant) return { error: "That product isn't available for purchase right now." };
+            if (!variant.availableForSale) return { error: "<b>" + product.title + "</b> is currently out of stock." };
 
             const cartId = await getOrCreateCart();
             const mutation = "mutation($cartId: ID!, $lines: [CartLineInput!]!) { cartLinesAdd(cartId: $cartId, lines: $lines) { cart { id checkoutUrl } userErrors { message } } }";
-            const data = await shopifyGraphQL(mutation, { cartId: cartId, lines: [{ merchandiseId: variantId, quantity: quantity || 1 }] });
+            const data = await shopifyGraphQL(mutation, { cartId: cartId, lines: [{ merchandiseId: variant.id, quantity: quantity || 1 }] });
             console.log('cartLinesAdd response:', data);
             if (data.data.cartLinesAdd.userErrors.length) return { error: data.data.cartLinesAdd.userErrors[0].message };
             return { success: true, product: product, checkoutUrl: data.data.cartLinesAdd.cart.checkoutUrl };
